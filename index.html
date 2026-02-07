@@ -9,7 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     
-    <!-- 2. 核心庫 -->
+    <!-- 2. 核心庫 (順序優化以解決 oneOfType 報錯) -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     
@@ -44,12 +44,14 @@
         .clickable-date { cursor: pointer; transition: all 0.2s; }
         .clickable-date:hover { background-color: #e2e8f0 !important; color: #4f46e5 !important; }
         .active-date-column { background-color: #eff6ff !important; }
+
+        .modal-overlay { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
     </style>
 </head>
 <body>
     <div id="loading-overlay">
         <div class="spinner"></div>
-        <p style="margin-top: 15px; font-weight: 800; color: #64748b; font-size: 14px;">正在校準日期與重大異常連動數據...</p>
+        <p style="margin-top: 15px; font-weight: 800; color: #64748b; font-size: 14px;">正在校準日期與多筆重大異常數據...</p>
     </div>
 
     <div id="root"></div>
@@ -61,9 +63,9 @@
             ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area 
         } = window.Recharts || {};
 
-        // --- 核心遊戲配置 ---
-        const ONLINE_ORDER = ['明星3缺1', '滿貫大亨', '捕魚大玩咖', '唯舞獨尊', '競技麻將2', '儲值專線', 'Vegas Frenzy', '大滿貫', '玩星派對', '幸運拉霸GO'];
-        const COMMERCIAL_ORDER = ['金猴爺', '金虎爺', '金好運娛樂城', '金好運娛樂城MY (TH,SG)', '金好運娛樂城JP', '海王寶藏', '撞球好手', '三國戰紀', 'Slotverse', '跑跑英雄'];
+        // --- 遊戲排序與分類配置 ---
+        const DEFAULT_ONLINE = ['明星3缺1', '滿貫大亨', '捕魚大玩咖', '唯舞獨尊', '競技麻將2', '儲值專線', 'Vegas Frenzy', '大滿貫', '玩星派對', '幸運拉霸GO'];
+        const DEFAULT_COMMERCIAL = ['金猴爺', '金虎爺', '金好運娛樂城', '金好運娛樂城MY (TH,SG)', '金好運娛樂城JP', '海王寶藏', '撞球好手', '三國戰紀', 'Slotverse', '跑跑英雄'];
 
         const GAME_ISSUE_CONFIG = {
             '明星3缺1': ["帳號問題", "伺服器相關問題", "儲值相關問題", "安裝、下載", "系統相關問題", "活動領獎問題", "規則設定問題", "反應與建議", "客戶服務", "行動版問題"],
@@ -81,7 +83,8 @@
             '海王寶藏': ["帳號問題", "伺服器相關問題", "軟硬體安裝問題", "儲值相關問題", "遊戲相關問題", "反應與建議", "其他問題"],
             '三國戰紀': ["帳號問題", "伺服器相關問題", "軟硬體安裝問題", "儲值相關問題", "遊戲相關問題", "反應與建議", "其他問題"],
             'Slotverse': ["帳號問題", "伺服器相關問題", "軟硬體安裝問題", "儲值相關問題", "遊戲相關問題", "規則設定問題", "反應與建議", "其他問題"],
-            'Default': ["帳號問題", "伺服器問題", "安裝問題", "儲值問題", "活動問題", "遊戲問題", "建議反饋", "其他問題"]
+            'Default_Online': ["帳號問題", "伺服器問題", "儲值問題", "遊戲問題", "建議反饋", "其他"],
+            'Default_Commercial': ["帳號問題", "伺服器問題", "安裝問題", "遊戲問題", "其他問題"]
         };
 
         const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f59e0b', '#10b981', '#06b6d4', '#0ea5e9', '#4f46e5', '#334155', '#94a3b8', '#fb7185'];
@@ -113,7 +116,7 @@
             );
         };
 
-        const IncidentItem = ({ summary, description, severity }) => {
+        const IncidentItem = ({ summary, description, severity, time }) => {
             const [isExpanded, setIsExpanded] = useState(false);
             const isCritical = severity === 'critical';
             return (
@@ -130,6 +133,10 @@
                     {isExpanded && (
                         <div className="px-5 pb-4 text-xs text-slate-600 leading-relaxed border-t border-slate-100 pt-3 bg-white rounded-b-2xl">
                             {description}
+                            <div className="mt-3 flex justify-between items-center">
+                                <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${isCritical ? 'bg-rose-500 text-white' : 'bg-slate-200 text-slate-600'}`}>{severity.toUpperCase()}</span>
+                                <span className="text-[10px] text-slate-400 font-bold">{time} 紀錄</span>
+                            </div>
                         </div>
                     )}
                 </div>
@@ -137,13 +144,13 @@
         };
 
         // --- 專案分析列 ---
-        const ProjectAnalysisRow = ({ name, trendData, timeScale, currentSelectedDate, onDateClick }) => {
+        const ProjectAnalysisRow = ({ name, trendData, timeScale, currentSelectedDate, onDateClick, activeTab }) => {
             const [isExpanded, setIsExpanded] = useState(false);
             if (!trendData) return null;
 
             const issueCategories = useMemo(() => {
-                return GAME_ISSUE_CONFIG[name] || GAME_ISSUE_CONFIG['Default'];
-            }, [name]);
+                return GAME_ISSUE_CONFIG[name] || (activeTab === 'general' ? GAME_ISSUE_CONFIG['Default_Online'] : GAME_ISSUE_CONFIG['Default_Commercial']);
+            }, [name, activeTab]);
 
             const totalInView = trendData.reduce((s, a) => s + (a.count || 0), 0);
             
@@ -193,7 +200,7 @@
 
                                 <div className="overflow-hidden">
                                     <h4 className="text-sm font-black text-slate-900 flex items-center gap-3 mb-4">
-                                        <Icon name="database" size={20} className="text-indigo-600" /> 數據細項明細表 <span className="text-[10px] text-slate-400 font-bold">{timeScale === 'daily' ? '(點擊日期切換報表基準)' : ''}</span>
+                                        <Icon name="database" size={20} className="text-indigo-600" /> 數據明細表 <span className="text-[10px] text-slate-400 font-bold">{timeScale === 'daily' ? '(點擊日期切換報表基準)' : ''}</span>
                                     </h4>
                                     <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-x-auto">
                                         <table className="w-full text-left border-collapse">
@@ -203,11 +210,7 @@
                                                     {trendData.map(d => {
                                                         const isCurrent = timeScale === 'daily' && currentSelectedDate === d.fullDate;
                                                         return (
-                                                            <th 
-                                                                key={d.name} 
-                                                                onClick={() => timeScale === 'daily' && onDateClick(d.fullDate)} 
-                                                                className={`text-center py-5 bg-slate-50/50 ${timeScale === 'daily' ? 'clickable-date hover:text-indigo-600' : ''} ${isCurrent ? 'text-indigo-600 active-date-column' : ''}`}
-                                                            >
+                                                            <th key={d.name} onClick={() => timeScale === 'daily' && onDateClick(d.fullDate)} className={`text-center py-5 bg-slate-50/50 ${timeScale === 'daily' ? 'clickable-date hover:text-indigo-600' : ''} ${isCurrent ? 'text-indigo-600 active-date-column' : ''}`}>
                                                                 {d.name}
                                                             </th>
                                                         );
@@ -247,6 +250,19 @@
             const [timeScale, setTimeScale] = useState('daily');
             const [selectedDate, setSelectedDate] = useState('');
             const [database, setDatabase] = useState({});
+            const [isManageModalOpen, setIsManageModalOpen] = useState(false);
+            
+            const [onlineProjects, setOnlineProjects] = useState(() => {
+                const saved = localStorage.getItem('DR_Online_Projects');
+                return saved ? JSON.parse(saved) : DEFAULT_ONLINE;
+            });
+            const [commercialProjects, setCommercialProjects] = useState(() => {
+                const saved = localStorage.getItem('DR_Commercial_Projects');
+                return saved ? JSON.parse(saved) : DEFAULT_COMMERCIAL;
+            });
+
+            useEffect(() => { localStorage.setItem('DR_Online_Projects', JSON.stringify(onlineProjects)); }, [onlineProjects]);
+            useEffect(() => { localStorage.setItem('DR_Commercial_Projects', JSON.stringify(commercialProjects)); }, [commercialProjects]);
 
             useEffect(() => {
                 const db = {};
@@ -264,64 +280,49 @@
                         redmineReplies: 120 + Math.floor(Math.random()*40)
                     });
 
-                    // --- 多日期重大異常模擬邏輯 ---
+                    // --- 重大異常模擬數據庫 (豐富化版本) ---
                     const onlineIncidents = [];
                     const commercialIncidents = [];
 
-                    // 2月7日 (最新)
+                    // 2月7日
                     if (dateStr === '2026-02-07') {
-                        onlineIncidents.push({ id: "o-7", severity: "critical", summary: "明星3缺1 iOS 支付驗證逾時", description: "iOS 金流憑證更換期間發生交握延遲，部分玩家反應儲值品項無法呼叫 Apple Pay 視窗。" });
-                        commercialIncidents.push({ id: "c-7", severity: "critical", summary: "商用身分驗證 API 響應延遲", description: "KYC 驗證伺服器發生大量請求堆積，影響新用戶完成身分認證程序，預計修復時間 2 小時。" });
+                        onlineIncidents.push({ id: "o-7-1", severity: "critical", summary: "明星3缺1 iOS 支付驗證逾時", description: "iOS玩家儲值 SSL 交握異常，技術團隊正與金流端排查中。", time: "14:30" });
+                        commercialIncidents.push({ id: "c-7-1", severity: "critical", summary: "商用驗證 API 響應大規模延遲", description: "KYC 驗證伺服器發生大量請求堆積，影響新用戶完成認證程序。", time: "11:20" });
                     }
                     // 2月6日
                     if (dateStr === '2026-02-06') {
-                        onlineIncidents.push({ id: "o-6", severity: "warning", summary: "連假活動登入排隊人數過多", description: "因週末慶典活動開啟，線上體系各遊戲登入伺服器出現瞬時流量峰值，目前排隊約 2-5 分鐘。" });
-                        commercialIncidents.push({ id: "c-6", severity: "warning", summary: "金虎爺伺服器磁碟 I/O 高負載", description: "資料庫執行定期索引重組作業，導致部分玩家在進行大額點數結算時有 1-3 秒延遲。" });
+                        onlineIncidents.push({ id: "o-6-1", severity: "warning", summary: "連假活動導致登入排隊壅塞", description: "因週末慶典開啟，登入伺服器出現瞬時流量峰值，玩家平均排隊 3 分鐘。", time: "19:45" });
+                        commercialIncidents.push({ id: "c-6-1", severity: "warning", summary: "金虎爺伺服器磁碟 I/O 高負載", description: "資料庫索引重組作業影響查詢效率，部分地區反應點數結算稍慢。", time: "04:10" });
                     }
                     // 2月4日
                     if (dateStr === '2026-02-04') {
-                        onlineIncidents.push({ id: "o-4", severity: "critical", summary: "捕魚大玩咖 Android 下載包解析出錯", description: "部分 Android 14 用戶反應 APK 下載後無法完成安裝，已緊急更換下載載點節點。" });
-                        commercialIncidents.push({ id: "c-4", severity: "critical", summary: "商用體系 B 伺服器網路中斷", description: "位於新加坡機房的專線出現短暫震盪，導致該區域用戶無法連線，已聯繫 IDC 供應商修復。" });
+                        onlineIncidents.push({ id: "o-4-1", severity: "critical", summary: "滿貫大亨資料庫連線池枯竭", description: "資料庫主機 CPU 飆升至 98%，導致部分玩家斷線無法重新進入遊戲。", time: "13:15" });
+                        commercialIncidents.push({ id: "c-4-1", severity: "critical", summary: "商用體系 B 伺服器骨幹網路中斷", description: "位於新加坡機房的網路交換器故障，影響約 15% 商用遊戲客戶連線。", time: "10:05" });
                     }
-                    // 2月2日 (週一)
+                    // 2月2日
                     if (dateStr === '2026-02-02') {
-                        onlineIncidents.push({ id: "o-2", severity: "warning", summary: "唯舞獨尊維護後服飾貼圖異常", description: "維護更新後，部分限量服飾出現破圖現象。目前已完成 AssetBundle 重新發布。" });
-                        commercialIncidents.push({ id: "c-2", severity: "warning", summary: "商用金好運資料庫維護延遲", description: "例行硬體升級作業因磁碟掃描耗時較長，原定 12:00 開機延後至 12:20。" });
+                        onlineIncidents.push({ id: "o-2-1", severity: "warning", summary: "唯舞獨尊維護後服飾貼圖異常", description: "例行維護更新後，部分限量套裝出現顯示錯誤，目前已重新發布補丁。", time: "12:30" });
+                        commercialIncidents.push({ id: "c-2-1", severity: "warning", summary: "商用金好運維護排程延遲開機", description: "硬體檢查耗時較長，原定 12:00 開機延後至 12:15。已對全服補償體力。", time: "11:55" });
                     }
 
                     db[dateStr] = {
-                        general: {
-                            stats: makeMockStats(500),
-                            majorIncidents: onlineIncidents,
-                            gameStats: {}
-                        },
-                        commercial: {
-                            stats: makeMockStats(300),
-                            majorIncidents: commercialIncidents,
-                            gameStats: {}
-                        }
+                        general: { stats: makeMockStats(500), majorIncidents: onlineIncidents, gameStats: {} },
+                        commercial: { stats: makeMockStats(300), majorIncidents: commercialIncidents, gameStats: {} }
                     };
 
-                    ONLINE_ORDER.forEach(g => {
-                        const cats = GAME_ISSUE_CONFIG[g] || GAME_ISSUE_CONFIG['Default'];
+                    [...onlineProjects, ...commercialProjects].forEach(g => {
+                        const cats = GAME_ISSUE_CONFIG[g] || (DEFAULT_ONLINE.includes(g) ? GAME_ISSUE_CONFIG['Default_Online'] : GAME_ISSUE_CONFIG['Default_Commercial']);
                         const data = { count: 0 };
-                        cats.forEach(c => { const v = 5 + Math.floor(Math.random()*15); data[c] = v; data.count += v; });
-                        db[dateStr].general.gameStats[g] = data;
-                    });
-                    COMMERCIAL_ORDER.forEach(g => {
-                        const cats = GAME_ISSUE_CONFIG[g] || GAME_ISSUE_CONFIG['Default'];
-                        const data = { count: 0 };
-                        cats.forEach(c => { const v = 3 + Math.floor(Math.random()*10); data[c] = v; data.count += v; });
-                        db[dateStr].commercial.gameStats[g] = data;
+                        cats.forEach(c => { const v = 3 + Math.floor(Math.random()*15); data[c] = v; data.count += v; });
+                        if (onlineProjects.includes(g)) db[dateStr].general.gameStats[g] = data;
+                        else db[dateStr].commercial.gameStats[g] = data;
                     });
                 }
                 setDatabase(db);
                 setSelectedDate(Object.keys(db).sort().reverse()[0]);
 
-                setTimeout(() => {
-                    document.getElementById('loading-overlay').style.display = 'none';
-                }, 1000);
-            }, []);
+                setTimeout(() => { document.getElementById('loading-overlay').style.display = 'none'; }, 1000);
+            }, [onlineProjects, commercialProjects]);
 
             const datesList = useMemo(() => Object.keys(database).sort().reverse(), [database]);
             const currentReport = database[selectedDate]?.[activeTab] || null;
@@ -332,15 +333,12 @@
 
             const chartData = useMemo(() => {
                 if (!currentReport) return [];
-                const list = activeTab === 'general' ? ONLINE_ORDER : COMMERCIAL_ORDER;
-                return list.map(name => ({
-                    name, 
-                    count: currentReport.gameStats?.[name]?.count || 0 
-                })).sort((a,b) => b.count - a.count);
-            }, [currentReport, activeTab]);
+                const list = activeTab === 'general' ? onlineProjects : commercialProjects;
+                return list.map(name => ({ name, count: currentReport.gameStats?.[name]?.count || 0 })).sort((a,b) => b.count - a.count);
+            }, [currentReport, activeTab, onlineProjects, commercialProjects]);
 
             const getProjectTrend = (projectName) => {
-                const cats = GAME_ISSUE_CONFIG[projectName] || GAME_ISSUE_CONFIG['Default'];
+                const cats = GAME_ISSUE_CONFIG[projectName] || (activeTab === 'general' ? GAME_ISSUE_CONFIG['Default_Online'] : GAME_ISSUE_CONFIG['Default_Commercial']);
                 const startIndex = datesList.indexOf(selectedDate);
                 if (startIndex === -1) return [];
 
@@ -350,17 +348,13 @@
                         const offset = startIndex + (i * 7);
                         const weekRange = datesList.slice(offset, offset + 7);
                         if (weekRange.length === 0) continue;
-
-                        const weekData = { name: `W${4 - i}`, count: 0, fullDate: weekRange[0] };
+                        const weekData = { name: `W${4-i}`, count: 0, fullDate: weekRange[0] };
                         cats.forEach(c => weekData[c] = 0);
-
                         weekRange.forEach(dateKey => {
                             const report = database[dateKey]?.[activeTab];
                             const gameData = report?.gameStats?.[projectName] || {};
                             weekData.count += (gameData.count || 0);
-                            cats.forEach(c => {
-                                weekData[c] += (gameData[c] || 0);
-                            });
+                            cats.forEach(c => { weekData[c] += (gameData[c] || 0); });
                         });
                         weeks.push(weekData);
                     }
@@ -375,6 +369,18 @@
                 }
             };
 
+            const [newProjectName, setNewProjectName] = useState('');
+            const addProject = () => {
+                if (!newProjectName.trim()) return;
+                if (activeTab === 'general') setOnlineProjects([...onlineProjects, newProjectName]);
+                else setCommercialProjects([...commercialProjects, newProjectName]);
+                setNewProjectName('');
+            };
+            const removeProject = (name) => {
+                if (activeTab === 'general') setOnlineProjects(onlineProjects.filter(p => p !== name));
+                else setCommercialProjects(commercialProjects.filter(p => p !== name));
+            };
+
             return (
                 <div className="min-h-screen pb-24 animate-fade-in">
                     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b h-20 flex items-center shadow-sm">
@@ -383,17 +389,51 @@
                                 <div className="bg-slate-900 p-2.5 rounded-2xl shadow-lg rotate-2"><Icon name="shield-check" className="text-white" /></div>
                                 <div>
                                     <h1 className="font-black text-2xl tracking-tighter text-slate-900 leading-none">DataInsight <span className="bg-indigo-600 text-white text-[9px] px-2 py-0.5 rounded uppercase tracking-widest ml-2">v4.52 PRO</span></h1>
-                                    <p className="text-[9px] text-slate-400 font-black tracking-widest uppercase mt-1">決策級細項數據連動平台</p>
+                                    <p className="text-[9px] text-slate-400 font-black tracking-widest uppercase mt-1">決策級數據連動與重大異常追蹤平台</p>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-3 px-5 py-2.5 bg-slate-100 rounded-2xl border">
-                                <Icon name="calendar" size={15} className="text-slate-400" />
-                                <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-transparent text-xs font-black text-slate-700 outline-none cursor-pointer">
-                                    {datesList.slice(0, 30).map(d => <option key={d} value={d}>{d}</option>)}
-                                </select>
+                            <div className="flex items-center gap-3">
+                                <button onClick={() => setIsManageModalOpen(true)} className="p-2.5 bg-white border border-slate-200 rounded-xl text-slate-500 hover:text-indigo-600 transition-all flex items-center gap-2 text-xs font-black shadow-sm">
+                                    <Icon name="settings" size={16} /> 管理專案
+                                </button>
+                                <div className="flex items-center gap-3 px-5 py-2.5 bg-slate-100 rounded-2xl border">
+                                    <Icon name="calendar" size={15} className="text-slate-400" />
+                                    <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-transparent text-xs font-black text-slate-700 outline-none cursor-pointer">
+                                        {datesList.slice(0, 30).map(d => <option key={d} value={d}>{d}</option>)}
+                                    </select>
+                                </div>
                             </div>
                         </div>
                     </header>
+
+                    {isManageModalOpen && (
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 modal-overlay">
+                            <div className="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-fade-in">
+                                <div className="p-8 border-b border-slate-100 flex justify-between items-center">
+                                    <h3 className="font-black text-xl text-slate-900 flex items-center gap-3"><Icon name="layers" size={20} className="text-indigo-600" /> 專案管理中心</h3>
+                                    <button onClick={() => setIsManageModalOpen(false)} className="text-slate-400 hover:text-slate-600"><Icon name="x" size={24} /></button>
+                                </div>
+                                <div className="p-8 bg-slate-50/50">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">正在管理：{activeTab === 'general' ? '線上遊戲' : '商用體系'}</p>
+                                    <div className="flex gap-2 mb-8">
+                                        <input type="text" value={newProjectName} onChange={(e) => setNewProjectName(e.target.value)} placeholder="輸入新遊戲名稱..." className="flex-grow bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:ring-2 ring-indigo-500/20" />
+                                        <button onClick={addProject} className="bg-indigo-600 text-white px-5 py-3 rounded-xl font-black text-xs shadow-lg shadow-indigo-200 active:scale-95 transition-all">新增</button>
+                                    </div>
+                                    <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+                                        {(activeTab === 'general' ? onlineProjects : commercialProjects).map(p => (
+                                            <div key={p} className="flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-100 shadow-sm group">
+                                                <span className="font-bold text-slate-700 text-sm">{p}</span>
+                                                <button onClick={() => removeProject(p)} className="text-slate-300 hover:text-rose-500 transition-colors opacity-0 group-hover:opacity-100"><Icon name="trash-2" size={16} /></button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="p-6 text-center border-t border-slate-100">
+                                    <button onClick={() => setIsManageModalOpen(false)} className="px-10 py-3 bg-slate-900 text-white rounded-xl font-black text-xs">完成並退出</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     <main className="max-w-screen-2xl mx-auto px-8 mt-10">
                         <div className="flex gap-4 mb-12">
@@ -415,7 +455,7 @@
                                     <div className="xl:col-span-1 bg-white p-10 rounded-[3.5rem] border shadow-xl min-h-[600px]">
                                         <h3 className="flex items-center gap-4 font-black text-slate-900 text-3xl tracking-tighter mb-10"><Icon name="alert-triangle" className="text-rose-600" size={36}/> 本日重大異常</h3>
                                         {currentReport.majorIncidents.length > 0 ? currentReport.majorIncidents.map(m => (
-                                            <IncidentItem key={m.id} summary={m.summary} description={m.description} severity={m.severity} />
+                                            <IncidentItem key={m.id} summary={m.summary} description={m.description} severity={m.severity} time={m.time} />
                                         )) : <p className="text-center py-20 text-slate-300 font-bold italic">營運穩定無異常</p>}
                                     </div>
 
@@ -438,22 +478,15 @@
 
                                 <div className="bg-white p-10 rounded-[4rem] border shadow-xl mb-20 overflow-hidden">
                                     <div className="flex justify-between items-center mb-12">
-                                        <div className="flex items-center gap-4"><div className="bg-indigo-600 p-3.5 rounded-[1.5rem] shadow-lg shadow-indigo-200"><Icon name="trending-up" className="text-white" size={26}/></div><h3 className="font-black text-slate-900 text-3xl tracking-tight">各專案問題數據分析 (細項映射)</h3></div>
+                                        <div className="flex items-center gap-4"><div className="bg-indigo-600 p-3.5 rounded-[1.5rem] shadow-lg shadow-indigo-200"><Icon name="trending-up" className="text-white" size={26}/></div><h3 className="font-black text-slate-900 text-3xl tracking-tight">各專案問題數據分析 (動態連動)</h3></div>
                                         <div className="flex bg-slate-100 p-2 rounded-[1.5rem] shadow-inner">
                                             <button onClick={() => setTimeScale('daily')} className={`px-8 py-2.5 rounded-[1.2rem] text-xs font-black transition-all ${timeScale === 'daily' ? 'bg-white text-indigo-600 shadow-md ring-1 ring-slate-200' : 'text-slate-400'}`}>日維度</button>
                                             <button onClick={() => setTimeScale('weekly')} className={`px-8 py-2.5 rounded-[1.2rem] text-xs font-black transition-all ${timeScale === 'weekly' ? 'bg-white text-indigo-600 shadow-md ring-1 ring-slate-200' : 'text-slate-400'}`}>週維度</button>
                                         </div>
                                     </div>
                                     <div className="space-y-6">
-                                        {(activeTab === 'general' ? ONLINE_ORDER : COMMERCIAL_ORDER).map(name => (
-                                            <ProjectAnalysisRow 
-                                                key={name} 
-                                                name={name} 
-                                                timeScale={timeScale} 
-                                                trendData={getProjectTrend(name)}
-                                                currentSelectedDate={selectedDate}
-                                                onDateClick={(date) => { setSelectedDate(date); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-                                            />
+                                        {(activeTab === 'general' ? onlineProjects : commercialProjects).map(name => (
+                                            <ProjectAnalysisRow key={name} name={name} timeScale={timeScale} trendData={getProjectTrend(name)} currentSelectedDate={selectedDate} onDateClick={(date) => { setSelectedDate(date); window.scrollTo({ top: 0, behavior: 'smooth' }); }} activeTab={activeTab} />
                                         ))}
                                     </div>
                                 </div>
